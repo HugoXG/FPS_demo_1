@@ -1,0 +1,36 @@
+# ── Unity 项目 .gitignore ──
+
+# Unity 自动生成的临时文件和缓存（巨量，绝不能上传）
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# IDE 和代码编辑器生成的文件
+.idea/
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.user
+*.userosscache
+*.suo
+*.userprefs
+
+# 操作系统生成的杂项
+.DS_Store
+Thumbs.db
+
+# 内存分析文件
+*.mdb
+*.pdb
+
+# Unity3D 生成的 meta 文件（需要上传，不要忽略！）
+# 但 crashlytics 临时文件要忽略
+Crashlytics/
+
+# 资源商店下载缓存
+[Aa]sset[S]tore[T]ools/
