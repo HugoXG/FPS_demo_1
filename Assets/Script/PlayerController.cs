@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEditor.EditorTools;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -10,27 +11,15 @@ using UnityEngine.AI;
  */
 public class PlayerController : MonoBehaviour {
 
-    // ──────────────────────── 字段（成员变量）────────────────────────
-
-    // CharacterController 是 Unity 内置的角色控制器组件，
-    // 提供 Move() 方法来移动角色，并自动处理与墙壁、地面的碰撞。
-    // 这里声明一个变量，稍后在 Start() 里从当前 GameObject 上获取这个组件。
     private CharacterController characterController;
-
-    // moveDirection：每一帧计算出的移动方向向量（世界坐标系下的单位向量）。
-    // public 意味着你可以在 Inspector 窗口实时看到它的值，方便调试。
     public Vector3 moveDirection;
+    private AudioSource audioSource; // 音效源
     private float verticalVelocity;
 
-    // [Header("玩家数值")] 在 Inspector 面板里显示一个加粗的标题"玩家数值"，
-    // 让下面几个字段归类在一起，方便查看。
     [Header("玩家数值")]
 
-    // Speed：当前实际使用的移动速度。每一帧在 Moving() 里被赋值为 walkSpeed。
-    // private 表示不在 Inspector 里显示，外部脚本也无法访问。
     public float Speed;
 
-    // [Tooltip("...")] 在 Inspector 里鼠标悬停到该字段上时，显示提示文字。
     [Tooltip("行走速度")] public float walkSpeed;    // 行走速度，默认在 Start() 里设为 7
     [Tooltip("奔跑速度")] public float runSpeed;      // 奔跑速度，预留（目前代码里未使用奔跑逻辑）
     [Tooltip("下蹲行走速度")] public float crouchSpeed; // 下蹲速度，预留（目前代码里未使用下蹲逻辑）
@@ -52,7 +41,7 @@ public class PlayerController : MonoBehaviour {
     public bool isRun;
     public bool isJump;
     private int jumpCounts;
-    public int jumpCountsSum;
+    public int jumpMaxCounts;
     public bool isGround;
     public bool isSky;
     public bool isWall;
@@ -60,10 +49,16 @@ public class PlayerController : MonoBehaviour {
     public bool isCanCrouch;
     public bool isCrouching;
 
+    bool stateIsChanged = false;
+
     public LayerMask crouchLayerMask; 
+    [Header("音效")]
+    [Tooltip("行走音效")]public AudioClip walkSound;
+    [Tooltip("奔跑音效")]public AudioClip runSound;
 
     void Start() {
         characterController = GetComponent<CharacterController>();
+        audioSource = GetComponent<AudioSource>();
 
         walkSpeed = 7f;       // 行走：每秒 7 个单位
         runSpeed = 14f;       // 奔跑：每秒 10 个单位
@@ -71,7 +66,7 @@ public class PlayerController : MonoBehaviour {
         jumpForce = 10f;
         fallForce = 25f; 
         setJumpCountsSum(2); // 跳跃次数
-        jumpCounts = jumpCountsSum;
+        jumpCounts = jumpMaxCounts;
         characterController.height = 2f;
         standHeight = characterController.height;
         crouchHeight = characterController.height / 2;
@@ -90,6 +85,10 @@ public class PlayerController : MonoBehaviour {
         Moving();
 
         ExecuteMovement(); // 统一处理移动
+        UpdateMovementState(); // 更新移动状态
+
+        PlayeAudio();
+
     }
 
     /**
@@ -109,11 +108,15 @@ public class PlayerController : MonoBehaviour {
 
         isRun = Input.GetKey(runInputName);
         isWalk = (Mathf.Abs(h) > 0 || Mathf.Abs(v) > 0) ? true : false;
-        if (isRun && isGround) {
-            state = MovementState.running;
-            Speed = runSpeed;
+        if (isRun) {
+            if (isCrouching) {
+                Speed = runSpeed * 0.7f;
+            } else if (isJump) {
+                Speed = runSpeed * 1.3f;
+            } else {
+                Speed = runSpeed;
+            }
         } else {
-            state = MovementState.walking;
             Speed = walkSpeed;
         }
 
@@ -195,10 +198,9 @@ public class PlayerController : MonoBehaviour {
             if (verticalVelocity < 0) {
                 verticalVelocity = -2f;  // 贴地
             }
-            isGround = true;
-            jumpCounts = jumpCountsSum;
 
-            
+            isGround = true;
+            jumpCounts = jumpMaxCounts;
         }
 
         if ((collisionFlags & CollisionFlags.Sides) != 0) {
@@ -210,15 +212,86 @@ public class PlayerController : MonoBehaviour {
             verticalVelocity = 0;  // 立即停止上升
             }
         }
+
     }
 
+    /**
+     * 更新移动状态
+     */
+    void UpdateMovementState() {
+        MovementState newState;
+        // 优先级最高：空中
+        if (!isGround) {
+            newState = MovementState.flying;
+        } else if (moveDirection.x == 0 && moveDirection.z == 0) {
+            newState = MovementState.standing;
+        } else if (isCrouching) {
+            newState = MovementState.crouching;
+        } else if (isRun) {
+            newState = MovementState.running;
+        } else {
+            newState = MovementState.walking;
+        }
+
+        stateIsChanged = (newState != state);
+        state = newState;
+
+        if (stateIsChanged) {
+            Debug.Log("玩家状态：" + state);
+        }
+    }
+
+
+    /**
+     * 设置跳跃次数
+     */
     public void setJumpCountsSum(int count) {
-        this.jumpCountsSum = count;
+        this.jumpMaxCounts = count;
     }
 
+    /**
+     * 播放音效
+     */
+    public void PlayeAudio() {
+        bool shouldPlaySound = (state == MovementState.walking ||
+                                state == MovementState.running);
+
+        bool shouldStopSound = (state == MovementState.standing ||
+                                state == MovementState.crouching ||
+                                state == MovementState.flying);
+
+        if (stateIsChanged) {
+            if (shouldPlaySound) {
+                switch (state) {
+                    case MovementState.walking:
+                        Debug.Log("播放行走音效");
+                        audioSource.clip = walkSound;
+                        break;
+                    case MovementState.running:
+                        Debug.Log("播放奔跑音效");
+                        audioSource.clip = runSound;
+                        break;
+                    case MovementState.crouching:
+                        Debug.Log("播放行走音效");
+                        audioSource.clip = walkSound;
+                        break;
+                }
+                audioSource.Play();
+            } else if (shouldStopSound && audioSource.isPlaying) {
+                Debug.Log("停止播放音效");
+                audioSource.Stop();
+            }    
+        }
+    }
+
+    /**
+     * 移动状态枚举
+     */
     public enum MovementState {
+        standing,
         walking,
         running,
         crouching,
+        flying,
     }
 }
